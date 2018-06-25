@@ -1,6 +1,7 @@
 #include "GrabCut.h"
 #include "GMM.h"
 #include "graph.h"
+
 using namespace std;
 using namespace cv;
 
@@ -10,7 +11,7 @@ GrabCut2D::~GrabCut2D(void)
 {
 }
 
-bool in_rect(int i, int j, Rect rect) {
+bool in_rect(int j, int i, Rect& rect ) {
 	return
 		i >= rect.tl().x && i <= rect.br().x
 		&& j >= rect.tl().y && j <= rect.br().y;
@@ -18,12 +19,13 @@ bool in_rect(int i, int j, Rect rect) {
 
 //确定背景：0， 确定前景：1，可能背景：2，可能前景：3
 void SamplePoints(Mat& img, Mat& mask, vector<Vec3f>& bgds,vector<Vec3f>&fgds,Mat&bgd_best_labels, Mat&fgd_best_labels) {
-	for (int y = 0; y < img.rows; y++) {
-		for (int x = 0; x < img.cols; x++) {
-			if (mask.at<uchar>(x, y) % 2 == 0) //确定背景和可能背景
-				bgds.push_back(Vec3f(img.at<Vec3b>(x, y)));
+	Point p;
+	for (p.y = 0; p.y < img.rows; p.y++) {
+		for (p.x = 0; p.x < img.cols; p.x++) {
+			if (mask.at<uchar>(p) % 2 == 0) //确定背景和可能背景
+				bgds.push_back((Vec3f)img.at<Vec3b>(p));
 			else
-				fgds.push_back(Vec3f(img.at<Vec3b>(x, y)));
+				fgds.push_back((Vec3f)img.at<Vec3b>(p));
 		}
 	}
 	//cout << bgds.size() <<"   "<< fgds.size() << endl;
@@ -33,54 +35,55 @@ void SamplePoints(Mat& img, Mat& mask, vector<Vec3f>& bgds,vector<Vec3f>&fgds,Ma
 
 static double calc_beta(cv::Mat img) {
 	double total_diff = 0.0;
-	Vec3b this_diff;
+	Vec3d this_diff;
 	int count = 0;
-	for (int j = 0; j < img.rows; j++) {
-		for (int i = 0; i < img.cols; i++) {
-			Vec3b it = img.at<Vec3b>(i, j);
+	Point p;
+	for (int i = 0; i < img.rows; i++) {
+		for (int j = 0; j < img.cols; j++) {
+			Vec3d it = (Vec3d)img.at<Vec3b>(i, j);
 			if (i > 0) {//左边
-				this_diff = it - img.at<Vec3b>(i - 1, j);
+				this_diff = it - (Vec3d)img.at<Vec3b>(i - 1, j);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
 			if (i > 0 && j > 0) {//左上
-				this_diff = it - img.at<Vec3b>(i - 1, j - 1);
+				this_diff = it - (Vec3d)img.at<Vec3b>(i - 1, j - 1);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
 			if (i > 0 && j + 1 < img.rows) {//左下
-				this_diff = it - img.at<Vec3b>(i - 1, j + 1);
+				this_diff = it - (Vec3d)img.at<Vec3b>(i - 1, j + 1);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
 			if (j > 0) {//正上
-				this_diff = it - img.at<Vec3b>(i, j - 1);
+				this_diff = it - (Vec3d)img.at<Vec3b>(i, j - 1);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
-			if (j + 1 < img.rows) {//正下
-				this_diff = it - img.at<Vec3b>(i, j + 1);
+			if (j + 1 < img.cols) {//正下
+				this_diff = it - (Vec3d)img.at<Vec3b>(i, j + 1);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
-			if (i + 1 < img.cols) {//正右
-				this_diff = it - img.at<Vec3b>(i + 1, j);
+			if (i + 1 < img.rows) {//正右
+				this_diff = it - (Vec3d)img.at<Vec3b>(i + 1, j);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
-			if (i + 1 < img.cols && j > 0) {//右上
-				this_diff = it - img.at<Vec3b>(i + 1, j - 1);
+			if (i + 1 < img.rows && j > 0) {//右上
+				this_diff = it - (Vec3d)img.at<Vec3b>(i + 1, j - 1);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
-			if (i + 1 < img.cols && j + 1 < img.rows) {//右下
-				this_diff = it - img.at<Vec3b>(i + 1, j + 1);
+			if (i + 1 < img.rows && j + 1 < img.cols) {//右下
+				this_diff = it - (Vec3d)img.at<Vec3b>(i + 1, j + 1);
 				total_diff += this_diff.dot(this_diff);
 				count++;
 			}
 		}
 	}
-	return total_diff / count;
+	return 1.0/(total_diff / count);
 }
 
 double mod(Vec3f& t) {
@@ -95,7 +98,7 @@ double mod(Vec3b& t) {
 	return t.dot(t);
 }
 
-void calc_smoothTerm(Mat& img,Mat& leftW, Mat& upleftW,Mat& upW, Mat& uprightW,double beta,double gamma = 50) {
+void calc_smoothTerm(Mat& img,Mat& leftW, Mat& upleftW,Mat& upW, Mat& uprightW,double beta,double gamma = 500) {
 	double dist = sqrt(2);
 
 	leftW.create(img.size(), CV_64FC1);
@@ -103,13 +106,13 @@ void calc_smoothTerm(Mat& img,Mat& leftW, Mat& upleftW,Mat& upW, Mat& uprightW,d
 	uprightW.create(img.size(), CV_64FC1);
 	upW.create(img.size(), CV_64FC1);
 
-	for (int j = 0; j < img.rows; j++) {
-		for (int i = 0; i < img.cols; i++) {
-			if (i > 0) {//左一格
-				leftW.at<double>(i, j) = gamma * \
+	for (int i = 0; i < img.rows; i++) {
+		for (int j = 0; j < img.cols; j++) {
+			if (i > 0) {//上一格
+				upW.at<double>(i, j) = gamma * \
 					exp(-beta * (mod(img.at<Vec3b>(i, j) - img.at<Vec3b>(i - 1, j))));
 			}
-			else leftW.at<double>(i, j) = 0;
+			else upW.at<double>(i, j) = 0;
 
 			if (i > 0 && j > 0) {//左上
 				upleftW.at<double>(i, j) = gamma * \
@@ -117,131 +120,88 @@ void calc_smoothTerm(Mat& img,Mat& leftW, Mat& upleftW,Mat& upW, Mat& uprightW,d
 			}
 			else upleftW.at<double>(i, j) = 0;
 
-			if (j > 0) {//正上
-				upW.at<double>(i, j) = gamma * \
+			if (j > 0) {//左
+				leftW.at<double>(i, j) = gamma * \
 					exp(-beta * (mod(img.at<Vec3b>(i, j) - img.at<Vec3b>(i, j-1))));
 			}
-			else upW.at<double>(i, j) = 0;
+			else leftW.at<double>(i, j) = 0;
 
-			if (j > 0 && i + 1 < img.cols) {//右上
+			if (i > 0 && j + 1 < img.cols) {//右上
 				uprightW.at<double>(i, j) = gamma * \
-					exp(-beta * (mod(img.at<Vec3b>(i, j) - img.at<Vec3b>(i +1, j-1))))/dist;
+					exp(-beta * (mod(img.at<Vec3b>(i, j) - img.at<Vec3b>(i - 1, j+1))))/dist;
 			}
 			else uprightW.at<double>(i, j) = 0;
 
 		}
 	}
 }
-#ifndef CUTGRAPH_H_
-#define CUTGRAPH_H_
-#include "graph.h"
-class CutGraph {
-private:
-	Graph<double, double, double> * graph;
-public:
-	CutGraph();
-	CutGraph(int, int);
-	int addVertex();
-	double maxFlow();
-	void addVertexWeights(int, double, double);
-	void addEdges(int, int, double);
-	bool isSourceSegment(int);
-};
-#endif
-CutGraph::CutGraph() {}
-CutGraph::CutGraph(int _vCount, int _eCount) {
-	graph = new Graph<double, double, double>(_vCount, _eCount);
-}
-int CutGraph::addVertex() {
-	return graph->add_node();
-}
-double CutGraph::maxFlow() {
-	return graph->maxflow();
-}
-void CutGraph::addVertexWeights(int _vNum, double _sourceWeight, double _sinkWeight) {
-	graph->add_tweights(_vNum, _sourceWeight, _sinkWeight);
-}
-void CutGraph::addEdges(int _vNum1, int _vNum2, double _weight) {
-	graph->add_edge(_vNum1, _vNum2, _weight, _weight);
-}
-bool CutGraph::isSourceSegment(int _vNum) {
-	if (graph->what_segment(_vNum) == Graph<double, double, double>::SOURCE)return true;
-	else return false;
-}
 
-static void getGraph(const Mat& _img, const Mat& _mask, const GMM& _bgdGMM, const GMM& _fgdGMM, double _lambda,
-	const Mat& _l, const Mat& _ul, const Mat& _u, const Mat& _ur,
-	CutGraph& _graph,Mat data_term_s,Mat data_term_t)
-{
-	int vCount = _img.cols*_img.rows;
-	int eCount = 2 * (4 * vCount - 3 * _img.cols - 3 * _img.rows + 2);
-	_graph = CutGraph(vCount, eCount);
-	Point p;
-	for (p.y = 0; p.y < _img.rows; p.y++) {
-		for (p.x = 0; p.x < _img.cols; p.x++) {
-			int vNum = _graph.addVertex();
-			Vec3b color = _img.at<Vec3b>(p);
-			double wSource = 0, wSink = 0;
-			if (_mask.at<uchar>(p) == 2 || _mask.at<uchar>(p) == 3) {
-				wSource = data_term_s.at<double>(p);
-				wSink = data_term_t.at<double>(p);
-			}
-			else if (_mask.at<uchar>(p) == 0) wSink = _lambda;
-			else wSource = _lambda;
-			_graph.addVertexWeights(vNum, wSource, wSink);
-			if (p.x > 0) {
-				double w = _l.at<double>(p);
-				_graph.addEdges(vNum, vNum - 1, w);
-			}
-			if (p.x > 0 && p.y > 0) {
-				double w = _ul.at<double>(p);
-				_graph.addEdges(vNum, vNum - _img.cols - 1, w);
-			}
-			if (p.y > 0) {
-				double w = _u.at<double>(p);
-				_graph.addEdges(vNum, vNum - _img.cols, w);
-			}
-			if (p.x < _img.cols - 1 && p.y > 0) {
-				double w = _ur.at<double>(p);
-				_graph.addEdges(vNum, vNum - _img.cols + 1, w);
+//static void assignGMMS(const Mat& _img, const Mat& _mask, GMM& _bgdGMM,GMM& _fgdGMM, Mat& _partIndex) {
+//	Point p;
+//	for (int x = 0; x < _img.rows; x++) {
+//		for (int y = 0; y < _img.cols; y++) {
+//			Vec3d color = (Vec3d)_img.at<Vec3b>(x,y);
+//			uchar t = _mask.at<uchar>(x,y);
+//			if (t == 0 || t == 2)_partIndex.at<int>(x,y) = _bgdGMM.choice(color);
+//			else _partIndex.at<int>(x,y) = _fgdGMM.choice(color);
+//		}
+//	}
+//}
+
+//迭代循环第二步，根据得到的结果计算GMM参数值。
+static void learnGMMs(const Mat& _img, const Mat& _mask, GMM& _bgdGMM, GMM& _fgdGMM, const Mat& _partIndex) {
+	_bgdGMM.clear();
+	_fgdGMM.clear();
+	for (int i = 0; i < 5; i++) {
+		for (int x = 0; x < _img.rows; x++) {
+			for (int y = 0; y < _img.cols; y++) {
+				int tmp = _partIndex.at<int>(x,y);
+				if (tmp == i) {
+					if (_mask.at<uchar>(x,y) == 0 || _mask.at<uchar>(x,y) == 2)
+						_bgdGMM.addPoint(tmp, (Vec3d)_img.at<Vec3b>(x,y));
+					else
+						_bgdGMM.addPoint(tmp, (Vec3d)_img.at<Vec3b>(x,y));
+				}
 			}
 		}
 	}
-}
-//进行分割 Done
-static void estimateSegmentation(CutGraph& _graph, Mat& _mask) {
-	_graph.maxFlow();
-	Point p;
-	for (p.y = 0; p.y < _mask.rows; p.y++) {
-		for (p.x = 0; p.x < _mask.cols; p.x++) {
-			if (_mask.at<uchar>(p) == 2 || _mask.at<uchar>(p) == 3) {
-				if (_graph.isSourceSegment(p.y*_mask.cols + p.x))
-					_mask.at<uchar>(p) = 3;
-				else _mask.at<uchar>(p) = 2;
-			}
-		}
-	}
+	_bgdGMM.update_params();
+	_fgdGMM.update_params();
 }
 
+static void initMaskWithRect(Mat& _mask, Size _imgSize, Rect _rect) {
+	_mask.create(_imgSize, CV_8UC1);
+	_mask.setTo(0);
+	_rect.x = _rect.x > 0 ? _rect.x : 0;
+	_rect.y = _rect.y > 0 ? _rect.y : 0;
+	_rect.width = _rect.x + _rect.width > _imgSize.width ? _imgSize.width - _rect.x : _rect.width;
+	_rect.height = _rect.y + _rect.height > _imgSize.height ? _imgSize.height - _rect.y : _rect.height;
+	(_mask(_rect)).setTo(Scalar(3));
+}
 
-void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray& _mask, cv::Rect rect, cv::InputOutputArray _bgdModel,cv::InputOutputArray _fgdModel, int iterCount, int mode )
+void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Rect rect, cv::InputOutputArray _bgdModel,cv::InputOutputArray _fgdModel, int iterCount, int mode )
 {
 	//1.Load Input Image: 加载输入颜色图像;
 	Mat img = _img.getMat();
 	Mat& mask = _mask.getMatRef();
 	Mat& bgdModel = _bgdModel.getMatRef();
 	Mat& fgdModel = _fgdModel.getMatRef();
-	cout << "      " << "Load Input Image" << endl;
+	//cout << "      " << "Load Input Image" << endl;
 	
-	//2.Init Mask: 用矩形框初始化Mask的Label值（确定背景：0， 确定前景：1，可能背景：2，可能前景：3）,矩形框以外设置为确定背景，矩形框以内设置为可能前景;
-	for (int j = 0; j < img.rows; j++) {
-		for (int i = 0; i < img.cols; i++) {
-			if (in_rect(j, i, rect)) 
-				mask.at<uchar>(i, j) = 3;   //矩形框内，可能前景：3
-			else
-				mask.at<uchar>(i, j) = 0;   //矩形框外，确定背景：0
+	////2.Init Mask: 用矩形框初始化Mask的Label值（确定背景：0， 确定前景：1，可能背景：2，可能前景：3）,矩形框以外设置为确定背景，矩形框以内设置为可能前景;
+	if (mode == GC_WITH_RECT)
+		for (int i = 0; i < img.rows; i++) {
+			for (int j = 0; j < img.cols; j++) {
+				if (in_rect(i, j, rect)) 
+					mask.at<uchar>(i, j) = 3;   //矩形框内，可能前景：3
+				else
+					mask.at<uchar>(i, j) = 0;   //矩形框外，确定背景：0
+			}
 		}
-	}
+
+	//if (mode == GC_WITH_RECT)
+		//initMaskWithRect(mask, img.size(), rect);
+
 	cout << "      " << "Init Mask" << endl;
 	
 	//3.Init GMM: 定义并初始化GMM(其他模型完成分割也可得到基本分数，GMM完成会加分）
@@ -261,16 +221,16 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray& _mask, cv::R
 
 		//5.Learn GMM(根据聚类的样本更新每个GMM component中的均值、协方差等参数）
 
-		//bgd:每个分量都是上万的数量级
+		//bgd:
 		for (int i = 0; i < bgd_best_labels.rows; i++) {
-			bgd.addPoint(bgd_best_labels.at<int>(i, 0), bgds[i]);
+			bgd.addPoint(bgd_best_labels.at<int>(i, 0), (Vec3d)bgds[i]);
 		}
 		bgd.update_params();
 		cout << "      " << "Learn GMM: bgd" << endl;
 
-		//fgd:每个分量几百的数量级
+		//fgd:
 		for (int i = 0; i < fgd_best_labels.rows; i++) {
-			fgd.addPoint(fgd_best_labels.at<int>(i, 0), fgds[i]);
+			fgd.addPoint(fgd_best_labels.at<int>(i, 0), (Vec3d)fgds[i]);
 		}
 		fgd.update_params();
 		cout << "      " << "Learn GMM: fgd" << endl;
@@ -280,15 +240,6 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray& _mask, cv::R
 
 		cout << "beta: " << beta << endl;
 
-		//s前景 t背景
-		Mat data_term_s(img.size(), CV_64FC1), data_term_t(img.size(), CV_64FC1);
-		
-		bgd.calc_dataTerm(img,data_term_t);
-		
-		fgd.calc_dataTerm(img,data_term_s);
-
-		//Mat data_term_s = Mat::zeros(img.size(), CV_64FC1);
-		//Mat data_term_t = Mat::zeros(img.size(), CV_64FC1);
 
 		cout << "      " << "Data Term" << endl;
 
@@ -298,21 +249,88 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray& _mask, cv::R
 		cout << "      " << "Smooth Term" << endl;
 		
 
-		//7.Estimate Segmentation(调用maxFlow库进行分割)
-		CutGraph graph;
-
-		getGraph(img, mask, bgd, fgd, 9 * 50, leftW, upleftW, upW, uprightW, graph, data_term_s, data_term_t);
-		estimateSegmentation(graph, mask);
-
-		/*for (int yy = 0; yy < mask.cols; yy++) {
-			for (int xx = 0; xx < mask.rows; xx++) {
-				cout << (int)(mask.at<uchar>(0, 0)) << "  ";
-			}
-			cout << endl;
-		}*/
+		////7.Estimate Segmentation(调用maxFlow库进行分割)
 		
+		int n_vertex = img.cols*img.rows;
+		int n_edges = 2 * (4 * img.cols*img.rows - 3 * img.cols - 3 * img.rows + 2);
+		Graph<double,double,double>* graph = new Graph<double, double, double>(n_vertex,n_edges);
+		double w_max = 1000.0;
+		
+		//add s-t-p
+		//t - links
+		for (int x = 0; x < img.rows; x++) {
+			//cout << x << endl;
+			for (int y = 0; y < img.cols; y++) {
+				double w_src, w_snk;
+				w_src = w_snk = 0.0;
+				int vertex = graph->add_node(); //vertex : newly added index of vertex
+				if (mask.at<uchar>(x, y) > 1) {
+					w_src = -log(bgd.get_weight(img.at<Vec3b>(x, y)));
+					w_snk = -log(fgd.get_weight(img.at<Vec3b>(x, y)));
+				}
+				else if (mask.at<uchar>(x, y) == 1) {//确定背景
+					w_snk = 0;
+					w_src = w_max;
+				}
+				else if (mask.at<uchar>(x, y) == 0) {//确定前景；
+					w_src = 0.0;
+					w_snk = w_max;
+				}
+				//s-t-p t-link
+				//add two tlin
+				graph->add_tweights(vertex, w_src, w_snk);
+
+			}
+		}
+		cout << "t links done" << endl;
+
+		//add n-links	
+		for (int i = 0; i< img.rows; i++) {
+			for (int j = 0; j < img.cols; j++) {
+				double w = 0.0;
+				int vertex = i * img.cols + j;
+				if (i > 0) {
+					w = upW.at<double>(i, j);
+					graph->add_edge(vertex, vertex - img.cols, w, w);
+				}
+				if (i > 0 && j > 0) {
+					w = upleftW.at<double>(i, j);
+					graph->add_edge(vertex, vertex - img.cols - 1, w,w);
+				}
+				if (j > 0) {
+					w = leftW.at<double>(i, j);
+					graph->add_edge(vertex, vertex - 1, w, w);
+					//cout << w << endl;
+				}
+				if (i > 0 && i < img.cols - 1 && j>0) {
+					w = uprightW.at<double>(i, j);
+					graph->add_edge(vertex, vertex - img.cols + 1, w, w);
+				}
+			}
+		}
+		cout << "n links " << endl;
+
+		double res = graph->maxflow();
+		cout << "res: " << res << endl;
+		cout << "graphs done" << endl;
+		for (int x = 0; x < img.rows; x++) {
+			for (int y = 0; y < img.cols; y++) {
+				if (mask.at<uchar>(x, y) > 1) {
+					if (graph->what_segment(x*img.cols + y)) {//1:BKG
+						mask.at<uchar>(x, y) = 2;
+						//cout << "set" << endl;
+					}
+					else {
+						mask.at<uchar>(x, y) = 3;
+						//cout << "set!" << endl;
+					}
+				}
+			}
+		}
+
 		cout << "      " << "Estimate Segmentation" << endl;
 		
 		//8.Save Result输入结果（将结果mask输出，将mask中前景区域对应的彩色图像保存和显示在交互界面中）
+		
 	}
 }

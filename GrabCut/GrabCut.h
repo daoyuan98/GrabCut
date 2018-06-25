@@ -10,7 +10,7 @@ enum
 class GrabCut2D
 {
 public:
-	void GrabCut( cv::InputArray _img, cv::InputOutputArray& _mask, cv::Rect rect,
+	void GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Rect rect,
 		cv::InputOutputArray _bgdModel,cv::InputOutputArray _fgdModel,
 		int iterCount, int mode );  
 

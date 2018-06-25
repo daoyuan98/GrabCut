@@ -145,6 +145,7 @@ void GCApplication::mouseClick( int event, int x, int y, int flags, void* )
 			setLblsInMask(flags, Point(x,y), false);    // Draw the FGD points
 			lblsState = SET;
 			showImage();
+			//cout << "set fgd" << endl;
 		}
 		break;
 	case CV_EVENT_RBUTTONUP:
@@ -153,6 +154,7 @@ void GCApplication::mouseClick( int event, int x, int y, int flags, void* )
 			setLblsInMask(flags, Point(x,y), true); //Draw the BGD points
 			prLblsState = SET;
 			showImage();
+			//cout << "set bgd" << endl;
 		}
 		break;
 	case CV_EVENT_MOUSEMOVE:
@@ -183,13 +185,13 @@ int GCApplication::nextIter()
 		gc.GrabCut(*image, mask, rect, bgdModel, fgdModel,1,GC_CUT);
 	else
 	{
-		if( rectState != SET )
+		if (rectState != SET)
 			return iterCount;
 
-		if( lblsState == SET || prLblsState == SET )
-		 gc.GrabCut( *image, mask, rect, bgdModel, fgdModel, 1, GC_WITH_MASK );
-		 else
-		 gc.GrabCut(*image, mask, rect, bgdModel, fgdModel,1,GC_WITH_RECT);
+		if (lblsState == SET || prLblsState == SET)
+			gc.GrabCut(*image, mask, rect, bgdModel, fgdModel, 1, GC_WITH_MASK);
+		else
+			gc.GrabCut(*image, mask, rect, bgdModel, fgdModel, 1, GC_WITH_RECT);
 		isInitialized = true;
 	}
 	iterCount++;

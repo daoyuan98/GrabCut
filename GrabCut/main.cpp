@@ -35,7 +35,7 @@ static void on_mouse( int event, int x, int y, int flags, void* param )
 int main()
 {
 
-	string filename = "D:\\test_imgs\\sun_flower2.jpg";
+	string filename = "D:\\test_imgs\\lemon.jpg";
 	Mat image = imread( filename, 1 );
 	if( image.empty() )
 	{
@@ -81,7 +81,7 @@ int main()
 	}
 
 exit_main:
+	getchar();
 	cvDestroyWindow( winName.c_str() );
 	return 0;
-
 }
