@@ -33,7 +33,7 @@ public:
 	void calc_det(int i);
 	void calc_inv(int i);
 	double get_weight(cv::Vec3b& color);
-	//int choice(cv::Vec3d color);
+	int choice(cv::Vec3d color);
 	void clear();
 };
 

@@ -30,9 +30,21 @@ double GMM::get_weight(cv::Vec3b& color) {
 	double res = 0.0;
 	for (int i = 0; i < K; i++) {
 		res += coeff[i] * prob(i, color);
-		//cout << i << endl;
 	}
 	return res;
+}
+
+int GMM::choice(cv::Vec3d _color){
+	int k = 0;
+	double max = 0;
+	for (int i = 0; i < K; i++) {
+		double p = prob(i, _color);
+		if (p > max){
+			k = i;
+			max = p;
+		}
+	}
+	return k;
 }
 
 void GMM::addPoint(int component_index, cv::Vec3d& point) {
@@ -73,7 +85,6 @@ void GMM::update_params() {//component_pointsÖÐµÄÊý¾Ý¸üÐÂÈ¨ÖØ¡¢¾ùÖµ¡¢·½²îÕâÐ©²ÎÊ
 	}
 }
 
-//using namespace cv;
 
 void GMM::calc_inv(int i) {
 	cv::Mat m = cv::Mat::ones(3, 3, CV_64FC1);
@@ -88,12 +99,6 @@ void GMM :: calc_det(int i) {
 	det[i] = thismat[0] * (thismat[4]*thismat[8] - thismat[5] * thismat[7])
 		- thismat[1] * (thismat[3] * thismat[8] - thismat[5] * thismat[6])
 		+ thismat[2] * (thismat[3] * thismat[7] - thismat[4] * thismat[6]);
-	/*if (det[i] <= std::numeric_limits<double>::epsilon()) {
-		thismat[0] += 0.01;
-		thismat[4] += 0.01;
-		thismat[8] += 0.01;
-		calc_det(i);
-	}*/
 	Inv[i].at<double>(0, 0) = (thismat[4] * thismat[8] - thismat[5] * thismat[7]) / det[i];
 	Inv[i].at<double>(1, 0) = -(thismat[3] * thismat[8] - thismat[5] * thismat[6]) / det[i];
 	Inv[i].at<double>(2, 0) = (thismat[3] * thismat[7] - thismat[4] * thismat[6]) / det[i];
@@ -103,8 +108,6 @@ void GMM :: calc_det(int i) {
 	Inv[i].at<double>(0, 2) = (thismat[1] * thismat[5] - thismat[2] * thismat[4]) / det[i];
 	Inv[i].at<double>(1, 2) = -(thismat[0] * thismat[5] - thismat[2] * thismat[3]) / det[i];
 	Inv[i].at<double>(2, 2) = (thismat[0] * thismat[4] - thismat[1] * thismat[3]) / det[i];
-
-	//cout << "det[i]: " << det[i] << endl;
 }
 
 void printMat(cv::Mat& m) {
@@ -123,20 +126,18 @@ double GMM::prob(int nk, cv::Vec3f color) {
 		cv::Vec3f diff = color;
 		cv::Vec3f m = mean[nk];
 		diff[0] -= m[0]; diff[1] -= m[1]; diff[2] -= m[2];
-	
+
 		cv::Mat sigma_inv = Inv[nk];
 
 		double det_sigma = det[nk];
 
-		double mult = diff[0] * (diff[0] * sigma_inv.at<double>(0,0) + diff[1] * sigma_inv.at<double>(1,0) + diff[2] * sigma_inv.at<double>(2, 0))
-			+ diff[1] * (diff[0] * sigma_inv.at<double>(0,1) + diff[1] * sigma_inv.at<double>(1, 1) + diff[2] * sigma_inv.at<double>(2, 1))
-			+ diff[2] * (diff[0] * sigma_inv.at<double>(0,2) + diff[1] * sigma_inv.at<double>(1, 2) + diff[2] * sigma_inv.at<double>(2, 2));
+		double mult = diff[0] * (diff[0] * sigma_inv.at<double>(0, 0) + diff[1] * sigma_inv.at<double>(1, 0) + diff[2] * sigma_inv.at<double>(2, 0))
+			+ diff[1] * (diff[0] * sigma_inv.at<double>(0, 1) + diff[1] * sigma_inv.at<double>(1, 1) + diff[2] * sigma_inv.at<double>(2, 1))
+			+ diff[2] * (diff[0] * sigma_inv.at<double>(0, 2) + diff[1] * sigma_inv.at<double>(1, 2) + diff[2] * sigma_inv.at<double>(2, 2));
 
 		res = 1.0f / sqrt(det_sigma)*exp(-1.0*mult / 2);
 
-	}
-	//cout << "res: " << res << endl;
-	
+	}	
 	return res;
 }
 
@@ -163,7 +164,7 @@ void GMM::calc_dataTerm(cv::Mat& img,cv::Mat& m){
 			double data_term = 0.0;
 
 			for (int nk = 0; nk < K; nk++) {
-				data_term += coeff[nk] * prob(nk, (cv::Vec3f)(img.at<cv::Vec3b>(i, j)));
+				data_term += prob(nk, (cv::Vec3f)(img.at<cv::Vec3b>(i, j)));
 			}
 			double t = -log(data_term);
 			m.at<double>(i, j) = t;

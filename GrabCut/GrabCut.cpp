@@ -1,6 +1,7 @@
 #include "GrabCut.h"
 #include "GMM.h"
 #include "graph.h"
+#include <ctime>
 
 using namespace std;
 using namespace cv;
@@ -136,51 +137,12 @@ void calc_smoothTerm(Mat& img,Mat& leftW, Mat& upleftW,Mat& upW, Mat& uprightW,d
 	}
 }
 
-//static void assignGMMS(const Mat& _img, const Mat& _mask, GMM& _bgdGMM,GMM& _fgdGMM, Mat& _partIndex) {
-//	Point p;
-//	for (int x = 0; x < _img.rows; x++) {
-//		for (int y = 0; y < _img.cols; y++) {
-//			Vec3d color = (Vec3d)_img.at<Vec3b>(x,y);
-//			uchar t = _mask.at<uchar>(x,y);
-//			if (t == 0 || t == 2)_partIndex.at<int>(x,y) = _bgdGMM.choice(color);
-//			else _partIndex.at<int>(x,y) = _fgdGMM.choice(color);
-//		}
-//	}
-//}
-
-//迭代循环第二步，根据得到的结果计算GMM参数值。
-static void learnGMMs(const Mat& _img, const Mat& _mask, GMM& _bgdGMM, GMM& _fgdGMM, const Mat& _partIndex) {
-	_bgdGMM.clear();
-	_fgdGMM.clear();
-	for (int i = 0; i < 5; i++) {
-		for (int x = 0; x < _img.rows; x++) {
-			for (int y = 0; y < _img.cols; y++) {
-				int tmp = _partIndex.at<int>(x,y);
-				if (tmp == i) {
-					if (_mask.at<uchar>(x,y) == 0 || _mask.at<uchar>(x,y) == 2)
-						_bgdGMM.addPoint(tmp, (Vec3d)_img.at<Vec3b>(x,y));
-					else
-						_bgdGMM.addPoint(tmp, (Vec3d)_img.at<Vec3b>(x,y));
-				}
-			}
-		}
-	}
-	_bgdGMM.update_params();
-	_fgdGMM.update_params();
-}
-
-static void initMaskWithRect(Mat& _mask, Size _imgSize, Rect _rect) {
-	_mask.create(_imgSize, CV_8UC1);
-	_mask.setTo(0);
-	_rect.x = _rect.x > 0 ? _rect.x : 0;
-	_rect.y = _rect.y > 0 ? _rect.y : 0;
-	_rect.width = _rect.x + _rect.width > _imgSize.width ? _imgSize.width - _rect.x : _rect.width;
-	_rect.height = _rect.y + _rect.height > _imgSize.height ? _imgSize.height - _rect.y : _rect.height;
-	(_mask(_rect)).setTo(Scalar(3));
-}
-
 void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Rect rect, cv::InputOutputArray _bgdModel,cv::InputOutputArray _fgdModel, int iterCount, int mode )
 {
+	clock_t start = clock();
+	//cv::grabCut(_img, _mask, rect, _bgdModel, _fgdModel, iterCount, mode);
+	//return;
+
 	//1.Load Input Image: 加载输入颜色图像;
 	Mat img = _img.getMat();
 	Mat& mask = _mask.getMatRef();
@@ -199,14 +161,9 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Re
 			}
 		}
 
-	//if (mode == GC_WITH_RECT)
-		//initMaskWithRect(mask, img.size(), rect);
-
-	cout << "      " << "Init Mask" << endl;
 	
 	//3.Init GMM: 定义并初始化GMM(其他模型完成分割也可得到基本分数，GMM完成会加分）
 	GMM fgd(5), bgd(5);
-	cout << "      " << "Init GMM" << endl;
 
 	//4.Sample Points:前背景颜色采样并进行聚类（建议用kmeans，其他聚类方法也可)
 
@@ -217,7 +174,7 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Re
 
 	for (int n_iter = 0; n_iter < iterCount; n_iter++) {
 		SamplePoints(img, mask, bgds, fgds, bgd_best_labels, fgd_best_labels);
-		cout << "      " << "Sample Points" << endl;
+		//cout << "      " << "Sample Points" << endl;
 
 		//5.Learn GMM(根据聚类的样本更新每个GMM component中的均值、协方差等参数）
 
@@ -226,31 +183,21 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Re
 			bgd.addPoint(bgd_best_labels.at<int>(i, 0), (Vec3d)bgds[i]);
 		}
 		bgd.update_params();
-		cout << "      " << "Learn GMM: bgd" << endl;
+		//cout << "      " << "Learn GMM: bgd" << endl;
 
 		//fgd:
 		for (int i = 0; i < fgd_best_labels.rows; i++) {
 			fgd.addPoint(fgd_best_labels.at<int>(i, 0), (Vec3d)fgds[i]);
 		}
 		fgd.update_params();
-		cout << "      " << "Learn GMM: fgd" << endl;
-
 		//6.Construct Graph（计算t-weight(数据项）和n-weight（平滑项))
-		double beta = calc_beta(img);
-
-		cout << "beta: " << beta << endl;
-
-
-		cout << "      " << "Data Term" << endl;
+		double beta = calc_beta(img)*4;
 
 		Mat leftW, upleftW, upW, uprightW;
-		calc_smoothTerm(img, leftW, upleftW, upW, uprightW, beta, 50);
-
-		cout << "      " << "Smooth Term" << endl;
-		
+		calc_smoothTerm(img, leftW, upleftW, upW, uprightW, beta, 50);		
 
 		////7.Estimate Segmentation(调用maxFlow库进行分割)
-		
+
 		int n_vertex = img.cols*img.rows;
 		int n_edges = 2 * (4 * img.cols*img.rows - 3 * img.cols - 3 * img.rows + 2);
 		Graph<double,double,double>* graph = new Graph<double, double, double>(n_vertex,n_edges);
@@ -265,8 +212,8 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Re
 				w_src = w_snk = 0.0;
 				int vertex = graph->add_node(); //vertex : newly added index of vertex
 				if (mask.at<uchar>(x, y) > 1) {
-					w_src = -log(bgd.get_weight(img.at<Vec3b>(x, y)));
-					w_snk = -log(fgd.get_weight(img.at<Vec3b>(x, y)));
+					w_src = -log(bgd.get_weight(img.at<Vec3b>(x, y)))/log(2.718);
+					w_snk = -log(fgd.get_weight(img.at<Vec3b>(x, y)))/log(2.718);
 				}
 				else if (mask.at<uchar>(x, y) == 1) {//确定背景
 					w_snk = 0;
@@ -282,7 +229,6 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Re
 
 			}
 		}
-		cout << "t links done" << endl;
 
 		//add n-links	
 		for (int i = 0; i< img.rows; i++) {
@@ -308,29 +254,23 @@ void GrabCut2D::GrabCut( cv::InputArray _img, cv::InputOutputArray _mask, cv::Re
 				}
 			}
 		}
-		cout << "n links " << endl;
+		//cout << "n links " << endl;
 
 		double res = graph->maxflow();
-		cout << "res: " << res << endl;
-		cout << "graphs done" << endl;
+
 		for (int x = 0; x < img.rows; x++) {
 			for (int y = 0; y < img.cols; y++) {
 				if (mask.at<uchar>(x, y) > 1) {
 					if (graph->what_segment(x*img.cols + y)) {//1:BKG
 						mask.at<uchar>(x, y) = 2;
-						//cout << "set" << endl;
 					}
 					else {
 						mask.at<uchar>(x, y) = 3;
-						//cout << "set!" << endl;
 					}
 				}
 			}
 		}
-
-		cout << "      " << "Estimate Segmentation" << endl;
-		
-		//8.Save Result输入结果（将结果mask输出，将mask中前景区域对应的彩色图像保存和显示在交互界面中）
-		
 	}
+	clock_t end = clock();
+	cout << 1.0*(end - start) / CLOCKS_PER_SEC << endl;
 }
